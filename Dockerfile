@@ -54,9 +54,33 @@ ARG USER_UID=1000
 ARG USER_GID=1000
 WORKDIR /app
 COPY --chown=node:node --from=build /app /app
-RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest opencode-ai \
+# Agent runtime CLIs + marketing-platform SDKs.
+# Installed globally so agents can `require()` them or call their binaries
+# directly. SDKs read credentials from env vars wired by paperclip's
+# secret-resolution at agent spawn time. TikTok uses native fetch (no
+# stable npm SDK at time of writing).
+RUN npm install --global --omit=dev \
+    @anthropic-ai/claude-code@latest \
+    @openai/codex@latest \
+    opencode-ai \
+    @shopify/cli \
+    @shopify/admin-api-client \
+    facebook-nodejs-business-sdk \
+    google-ads-api \
+    googleapis \
+    amazon-sp-api \
+    @higgsfield/cli \
   && mkdir -p /paperclip \
   && chown node:node /paperclip
+
+# Python deps for paperclip-config/credentials/*.py scripts (used by the
+# vault subsystem at /instance/settings/vault to run build/sync/wire from
+# the operator UI). Project mounted at /repo in docker-compose.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3-pip python3-venv \
+  && python3 -m pip install --break-system-packages --no-cache-dir \
+       pyyaml requests openpyxl \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
