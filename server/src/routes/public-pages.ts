@@ -1,7 +1,15 @@
 import { Router } from "express";
+import { createReadStream, promises as fsp } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import type { Db } from "@paperclipai/db";
 import { workProductService } from "../services/work-products.js";
 import { issueService } from "../services/issues.js";
+
+// Landing-page media (hero video + generated stills) lives in the
+// marketing-engine repo's assets/ dir, bind-mounted into this container at
+// /repo (docker-compose `.:/repo`). Each page's work-product metadata carries a
+// `media` map { key: { path, contentType } } with paths relative to assets/.
+const REPO_ASSETS_DIR = process.env.REPO_ASSETS_DIR || "/repo/assets";
 
 // Public, unauthenticated serving of approved landing pages / lead forms.
 //
@@ -43,6 +51,55 @@ export function publicPagesRoutes(db: Db) {
       return;
     }
     res.status(200).type("html").send(html);
+  });
+
+  // Serve an approved page's media (hero video / generated images) from the
+  // bind-mounted assets/ dir. Only paths listed in the page's metadata.media are
+  // served, and the resolved path must stay inside REPO_ASSETS_DIR (no traversal).
+  // Supports HTTP range requests so <video> playback/seeking works.
+  router.get("/p/:slug/media/:key", async (req, res) => {
+    const wp = await workProducts.getPublishedBySlug(subdomainOf(req.hostname), req.params.slug);
+    const media = (wp?.metadata?.media ?? {}) as Record<string, { path?: string; contentType?: string }>;
+    const entry = media[req.params.key];
+    if (!wp || !entry?.path) {
+      res.status(404).end();
+      return;
+    }
+    const base = resolvePath(REPO_ASSETS_DIR);
+    const full = resolvePath(base, entry.path);
+    if (full !== base && !full.startsWith(base + "/")) {
+      res.status(403).end();
+      return;
+    }
+    let stat;
+    try {
+      stat = await fsp.stat(full);
+    } catch {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader("Content-Type", entry.contentType || "application/octet-stream");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Accept-Ranges", "bytes");
+    const range = req.headers.range;
+    if (range) {
+      const m = /bytes=(\d*)-(\d*)/.exec(range);
+      let start = m && m[1] ? parseInt(m[1], 10) : 0;
+      let end = m && m[2] ? parseInt(m[2], 10) : stat.size - 1;
+      if (Number.isNaN(start) || start < 0) start = 0;
+      if (Number.isNaN(end) || end >= stat.size) end = stat.size - 1;
+      if (start > end) {
+        res.status(416).setHeader("Content-Range", `bytes */${stat.size}`).end();
+        return;
+      }
+      res.status(206);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${stat.size}`);
+      res.setHeader("Content-Length", String(end - start + 1));
+      createReadStream(full, { start, end }).pipe(res);
+    } else {
+      res.setHeader("Content-Length", String(stat.size));
+      createReadStream(full).pipe(res);
+    }
   });
 
   // Accept a form submission from a live page. Creates a "[lead]" issue in the
@@ -87,7 +144,9 @@ export function publicPagesRoutes(db: Db) {
       metadata: { ...meta, submissionCount: ((meta.submissionCount as number) ?? 0) + 1 },
     });
 
-    res.status(201).json({ status: "captured" });
+    // Hand the captured lead off to booking (e.g. Acuity) if the page set a URL.
+    const bookingUrl = typeof meta.bookingUrl === "string" ? meta.bookingUrl : null;
+    res.status(201).json({ status: "captured", bookingUrl });
   });
 
   return router;
