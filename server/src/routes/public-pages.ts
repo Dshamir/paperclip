@@ -122,12 +122,23 @@ export function publicPagesRoutes(db: Db) {
       [cappedString(body.firstName, 100), cappedString(body.lastName, 100)].filter(Boolean).join(" ").trim() ||
       email;
 
+    const meta = (wp.metadata ?? {}) as Record<string, unknown>;
+    const utm = {
+      source: cappedString(body.utm_source, 100),
+      medium: cappedString(body.utm_medium, 100),
+      campaign: cappedString(body.utm_campaign, 150),
+      term: cappedString(body.utm_term, 100),
+      content: cappedString(body.utm_content, 100),
+    };
     const description = JSON.stringify({
       name,
       email,
       phone: cappedString(body.phone, 50),
       message: cappedString(body.message, 4000),
       source: `page:${req.params.slug}`,
+      utm,
+      campaignGroup: typeof meta.campaignGroup === "string" ? meta.campaignGroup : null,
+      abVariant: typeof meta.abVariant === "string" ? meta.abVariant : null,
       score: 0,
       stage: "new",
       capturedAt: new Date().toISOString(),
@@ -139,7 +150,6 @@ export function publicPagesRoutes(db: Db) {
     });
 
     // Keep the page's submission counter accurate.
-    const meta = (wp.metadata ?? {}) as Record<string, unknown>;
     await workProducts.update(wp.id, {
       metadata: { ...meta, submissionCount: ((meta.submissionCount as number) ?? 0) + 1 },
     });
@@ -147,6 +157,26 @@ export function publicPagesRoutes(db: Db) {
     // Hand the captured lead off to booking (e.g. Acuity) if the page set a URL.
     const bookingUrl = typeof meta.bookingUrl === "string" ? meta.bookingUrl : null;
     res.status(201).json({ status: "captured", bookingUrl });
+  });
+
+  // Self-hosted funnel analytics: page-view + booking-click counters per page.
+  // Accepts ?type=view|booking (query, so navigator.sendBeacon works). 204.
+  router.post("/p/:slug/event", async (req, res) => {
+    const wp = await workProducts.getPublishedBySlug(subdomainOf(req.hostname), req.params.slug);
+    if (!wp) {
+      res.status(404).end();
+      return;
+    }
+    const type = String(req.query.type || (req.body as { type?: string } | undefined)?.type || "");
+    const meta = (wp.metadata ?? {}) as Record<string, unknown>;
+    if (type === "view") meta.viewCount = ((meta.viewCount as number) ?? 0) + 1;
+    else if (type === "booking") meta.bookingClicks = ((meta.bookingClicks as number) ?? 0) + 1;
+    else {
+      res.status(400).end();
+      return;
+    }
+    await workProducts.update(wp.id, { metadata: meta });
+    res.status(204).end();
   });
 
   return router;
