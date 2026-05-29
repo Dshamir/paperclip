@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { issueWorkProducts } from "@paperclipai/db";
 import type { IssueWorkProduct } from "@paperclipai/shared";
@@ -46,6 +46,27 @@ export function workProductService(db: Db) {
         .select()
         .from(issueWorkProducts)
         .where(eq(issueWorkProducts.id, id))
+        .then((rows) => rows[0] ?? null);
+      return row ? toIssueWorkProduct(row) : null;
+    },
+
+    // Resolve a published landing page / lead form by its company subdomain +
+    // slug. Used by the public, unauthenticated GET /p/:slug route — only
+    // returns deliverables that have cleared board review (reviewState approved).
+    getPublishedBySlug: async (subdomain: string, slug: string) => {
+      const row = await db
+        .select()
+        .from(issueWorkProducts)
+        .where(
+          and(
+            eq(issueWorkProducts.type, "preview_url"),
+            eq(issueWorkProducts.reviewState, "approved"),
+            sql`${issueWorkProducts.metadata}->>'subdomain' = ${subdomain}`,
+            sql`${issueWorkProducts.metadata}->>'slug' = ${slug}`,
+          ),
+        )
+        .orderBy(desc(issueWorkProducts.updatedAt))
+        .limit(1)
         .then((rows) => rows[0] ?? null);
       return row ? toIssueWorkProduct(row) : null;
     },

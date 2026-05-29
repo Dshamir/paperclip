@@ -15,6 +15,7 @@ import { companySkillRoutes } from "./routes/company-skills.js";
 import { agentRoutes } from "./routes/agents.js";
 import { projectRoutes } from "./routes/projects.js";
 import { issueRoutes } from "./routes/issues.js";
+import { publicPagesRoutes } from "./routes/public-pages.js";
 import { routineRoutes } from "./routes/routines.js";
 import { executionWorkspaceRoutes } from "./routes/execution-workspaces.js";
 import { goalRoutes } from "./routes/goals.js";
@@ -127,6 +128,11 @@ export async function createApp(
     app.all("/api/auth/*authPath", opts.betterAuthHandler);
   }
   app.use(llmRoutes(db));
+
+  // Public, unauthenticated serving of approved landing pages / lead forms at
+  // /p/:slug (carried fork edit — see KNOWN_ISSUES.md). Mounted before the
+  // authed /api router and the SPA catch-all.
+  app.use(publicPagesRoutes(db));
 
   // Mount API routes
   const api = Router();
