@@ -1,11 +1,17 @@
-FROM node:lts-trixie-slim AS base
+FROM node:lts-trixie-slim@sha256:8d2304c25b2d321482e642b24886705f9047cc2d689d7c04e4906cc5f5830ad3 AS base
 ARG USER_UID=1000
 ARG USER_GID=1000
+# WP-A.1 — GitHub CLI keyring SHA carried as a build-arg so rebuilds can pick
+# up rotations without a Dockerfile edit. Refresh with:
+#   curl -sSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sha256sum
+# Default below is the value pinned 2026-06-02. Override at build:
+#   docker build --build-arg GITHUB_CLI_KEYRING_SHA=<sha256> .
+ARG GITHUB_CLI_KEYRING_SHA=6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates gosu curl git wget ripgrep python3 \
   && mkdir -p -m 755 /etc/apt/keyrings \
   && wget -nv -O/etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-  && echo "6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b  /etc/apt/keyrings/githubcli-archive-keyring.gpg" | sha256sum -c - \
+  && echo "${GITHUB_CLI_KEYRING_SHA}  /etc/apt/keyrings/githubcli-archive-keyring.gpg" | sha256sum -c - \
   && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
   && mkdir -p -m 755 /etc/apt/sources.list.d \
   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
