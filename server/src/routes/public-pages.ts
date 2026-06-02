@@ -154,6 +154,32 @@ export function publicPagesRoutes(db: Db) {
       metadata: { ...meta, submissionCount: ((meta.submissionCount as number) ?? 0) + 1 },
     });
 
+    // Optional lead-mirror: forward to a brand's existing intake (e.g. Jade's
+    // contact.submit endpoint) so leads land in BOTH the Paperclip [lead]
+    // carrier AND wherever the client already manages enquiries. Fire-and-
+    // forget; mirror failure does not reject the visitor.
+    const mirrorUrl = typeof meta.mirrorUrl === "string" ? meta.mirrorUrl : null;
+    if (mirrorUrl) {
+      const mirrorShape = typeof meta.mirrorShape === "string" ? meta.mirrorShape : "plain";
+      const message = cappedString(body.message, 4000);
+      const phone = cappedString(body.phone, 50);
+      const sourceLine = `Enquiry from ${`https://${subdomainOf(req.hostname)}.nexlessclip.com/p/${req.params.slug}`}`;
+      const composed = [message, phone ? `Phone: ${phone}` : null, sourceLine]
+        .filter(Boolean)
+        .join("\n\n");
+      const payload =
+        mirrorShape === "trpc"
+          ? { json: { name, email, message: composed } }
+          : { name, email, phone, message: composed, source: sourceLine, utm };
+      fetch(mirrorUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch((err) => {
+        console.warn(`[public-pages] mirror to ${mirrorUrl} failed:`, err);
+      });
+    }
+
     // Hand the captured lead off to booking (e.g. Acuity) if the page set a URL.
     const bookingUrl = typeof meta.bookingUrl === "string" ? meta.bookingUrl : null;
     res.status(201).json({ status: "captured", bookingUrl });
