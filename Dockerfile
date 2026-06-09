@@ -1,11 +1,17 @@
-FROM node:lts-trixie-slim AS base
+FROM node:lts-trixie-slim@sha256:8d2304c25b2d321482e642b24886705f9047cc2d689d7c04e4906cc5f5830ad3 AS base
 ARG USER_UID=1000
 ARG USER_GID=1000
+# WP-A.1 — GitHub CLI keyring SHA carried as a build-arg so rebuilds can pick
+# up rotations without a Dockerfile edit. Refresh with:
+#   curl -sSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sha256sum
+# Default below is the value pinned 2026-06-02. Override at build:
+#   docker build --build-arg GITHUB_CLI_KEYRING_SHA=<sha256> .
+ARG GITHUB_CLI_KEYRING_SHA=6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates gosu curl git wget ripgrep python3 \
   && mkdir -p -m 755 /etc/apt/keyrings \
   && wget -nv -O/etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-  && echo "20e0125d6f6e077a9ad46f03371bc26d90b04939fb95170f5a1905099cc6bcc0  /etc/apt/keyrings/githubcli-archive-keyring.gpg" | sha256sum -c - \
+  && echo "${GITHUB_CLI_KEYRING_SHA}  /etc/apt/keyrings/githubcli-archive-keyring.gpg" | sha256sum -c - \
   && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
   && mkdir -p -m 755 /etc/apt/sources.list.d \
   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
@@ -54,9 +60,33 @@ ARG USER_UID=1000
 ARG USER_GID=1000
 WORKDIR /app
 COPY --chown=node:node --from=build /app /app
-RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest opencode-ai \
+# Agent runtime CLIs + marketing-platform SDKs.
+# Installed globally so agents can `require()` them or call their binaries
+# directly. SDKs read credentials from env vars wired by paperclip's
+# secret-resolution at agent spawn time. TikTok uses native fetch (no
+# stable npm SDK at time of writing).
+RUN npm install --global --omit=dev \
+    @anthropic-ai/claude-code@latest \
+    @openai/codex@latest \
+    opencode-ai \
+    @shopify/cli \
+    @shopify/admin-api-client \
+    facebook-nodejs-business-sdk \
+    google-ads-api \
+    googleapis \
+    amazon-sp-api \
+    @higgsfield/cli \
   && mkdir -p /paperclip \
   && chown node:node /paperclip
+
+# Python deps for paperclip-config/credentials/*.py scripts (used by the
+# vault subsystem at /instance/settings/vault to run build/sync/wire from
+# the operator UI). Project mounted at /repo in docker-compose.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3-pip python3-venv \
+  && python3 -m pip install --break-system-packages --no-cache-dir \
+       pyyaml requests openpyxl \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

@@ -15,6 +15,7 @@ import { companySkillRoutes } from "./routes/company-skills.js";
 import { agentRoutes } from "./routes/agents.js";
 import { projectRoutes } from "./routes/projects.js";
 import { issueRoutes } from "./routes/issues.js";
+import { publicPagesRoutes } from "./routes/public-pages.js";
 import { routineRoutes } from "./routes/routines.js";
 import { executionWorkspaceRoutes } from "./routes/execution-workspaces.js";
 import { goalRoutes } from "./routes/goals.js";
@@ -25,6 +26,7 @@ import { activityRoutes } from "./routes/activity.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { sidebarBadgeRoutes } from "./routes/sidebar-badges.js";
 import { instanceSettingsRoutes } from "./routes/instance-settings.js";
+import { vaultRoutes } from "./routes/vault.js";
 import { llmRoutes } from "./routes/llms.js";
 import { assetRoutes } from "./routes/assets.js";
 import { accessRoutes } from "./routes/access.js";
@@ -127,6 +129,11 @@ export async function createApp(
   }
   app.use(llmRoutes(db));
 
+  // Public, unauthenticated serving of approved landing pages / lead forms at
+  // /p/:slug (carried fork edit — see KNOWN_ISSUES.md). Mounted before the
+  // authed /api router and the SPA catch-all.
+  app.use(publicPagesRoutes(db));
+
   // Mount API routes
   const api = Router();
   api.use(boardMutationGuard());
@@ -155,6 +162,7 @@ export async function createApp(
   api.use(dashboardRoutes(db));
   api.use(sidebarBadgeRoutes(db));
   api.use(instanceSettingsRoutes(db));
+  api.use(vaultRoutes(db));
   const hostServicesDisposers = new Map<string, () => void>();
   const workerManager = createPluginWorkerManager();
   const pluginRegistry = pluginRegistryService(db);
