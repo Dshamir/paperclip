@@ -2,6 +2,12 @@
 
 Guidance for human and AI contributors working in this repository.
 
+> **This fork's `server/src/routes/public-pages.ts` serves brand landing pages
+> (`GET /p/:slug`) on `:3500`, reached publicly via the platform Caddy + ngrok.**
+> For the full cross-stack routing topology (who reaches this server and how),
+> see `../ROUTING-MAP.md` (the `Admin-Cons-Paperclip/` root). New brand hosts
+> must be added to `PAPERCLIP_ALLOWED_HOSTNAMES` or this server 403s them.
+
 ## 1. Purpose
 
 Paperclip is a control plane for AI-agent companies.
